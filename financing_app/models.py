@@ -1,12 +1,14 @@
 from datetime import date
 from django.db import models
+from django.utils import timezone
+from decimal import Decimal, ROUND_HALF_UP
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 
 class UserManager(BaseUserManager):
     def create_user(self, username, email, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', False)
         extra_fields.setdefault('is_superuser', False)
-        extra_fields.setdefault('rol', 'user')
+        extra_fields.setdefault('rol', 'student')
 
         if not email:
             raise ValueError('El usuario debe tener un correo electrónico')
@@ -34,13 +36,14 @@ class User(AbstractUser):
         ('student', 'Student'),
         ('admin', 'Admin'),
     ]
-    rol = models.CharField(max_length=10, choices=ROL_CHOICES, default='user')
-    user_id = models.CharField(max_length=20, unique=True) #Cedula de Ciudadanía
+    
+    rol = models.CharField(max_length=10, choices=ROL_CHOICES, default='student')
+    user_cc = models.CharField(max_length=20, unique=True) #Cedula de Ciudadanía
     
     objects = UserManager()
 
     def __str__(self):
-        return f"{self.username} - {self.user_id}"
+        return f"{self.username} - {self.user_cc}"
  
  
 class Career(models.Model):
@@ -88,7 +91,7 @@ class FinancingRequest(models.Model):
     down_payment = models.DecimalField(max_digits=12, decimal_places=2) #Pago Inicial
     interest_rate = models.FloatField(default=1.8) #Tasa de Interés
     administration_fee = models.FloatField(default=5.0) #Gastos Administrativos
-    number_installments = models.IntegerField(default=6) #Número de Cuotas
+    number_fee = models.IntegerField(default=6) #Número de Cuotas
     
     #Applicable Discount Field
     discount_applied = models.FloatField(default=0.0) #Descuento Aplicado
@@ -108,7 +111,7 @@ class FinancingRequest(models.Model):
     @property
     def calculate_payment_plan(self):
         i = self.interest_rate / 100
-        n = self.number_installments
+        n = self.number_fee
         value = float(self.financed_value)
         
         if i == 0:
@@ -129,3 +132,27 @@ class FinancingRequest(models.Model):
     
     def __str__(self):
         return f"Request by {self.user} for {self.tuition_value.career.name} - {self.tuition_value.period}"
+    
+# Modelo de Cuotas
+class Installment(models.Model):
+    financing_request = models.ForeignKey(FinancingRequest, on_delete=models.CASCADE, related_name='installments')
+    num_fee = models.PositiveIntegerField()
+    value_fee = models.DecimalField(max_digits=10, decimal_places=2)
+    expiration_date = models.DateField()
+    payment_date = models.DateField(null=True, blank=True)
+    status= models.CharField(max_length=20, choices=[
+        ('Pending', 'Pendiente'),
+        ('Paid', 'Pagada'),
+        ('Overdue', 'En mora')
+    ], default="Pending")
+    
+    arrears = models.DecimalField(max_digits=10, decimal_places=2, default=0) # Mora
+    
+    def is_in_arrears(self):
+        return self.status == 'Pending' and self.expiration_date < timezone.now().date
+    
+    def arrears_calculate(self, arrears_percentage):
+        if self.is_in_arrears():
+            self.arrears = (self.value_fee * Decimal(arrears_percentage / 100)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            self.status = 'Overdue'
+            self.save()

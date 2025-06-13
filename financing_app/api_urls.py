@@ -1,6 +1,6 @@
+from . import api_views
 from django.urls import path
-from .api_views import FinancingRequestAPIViews
 
 urlpatterns = [
-    path('financing-request/<int:pk>/summary/', FinancingRequestAPIViews.as_view(), name='financing-summary')
+    path('financing-request/<int:pk>/summary/', api_views.FinancingRequestAPIViews.as_view(), name='financing-summary')
 ]
